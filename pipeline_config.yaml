@@ -1,0 +1,17 @@
+pipeline:
+  infrastructure: cloudformation
+  s3bucket: "lmfin-cicd-deploys"
+  tags: "Project=finance"
+  region: "eu-west-1"
+  version: 1.0.0
+  sonar: false
+  veracode: false
+  testUrl: ""
+  flow_type: "dl-flow-without-test"
+  iam:
+    dev:
+      role: arn:aws:iam::560378183564:role/CloudFormationDeploy
+    qa:
+      role: arn:aws:iam::495164439793:role/CloudFormationDeploy
+    prd:
+      role: arn:aws:iam::956272687219:role/CloudFormationDeploy

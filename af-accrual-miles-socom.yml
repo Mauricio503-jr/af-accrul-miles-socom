@@ -1,0 +1,230 @@
+#Parameters
+Parameters:
+  EnvironmentParam:
+    Description: Environment Name
+    Type: String
+    AllowedValues: [dev, qa, prd]
+    ConstraintDescription: value must be dev, qa or prd
+
+#Mappings
+Mappings:
+  Environment:
+    dev:
+      AwsAccountId: 560378183564
+      Workgroup: lm-finance-workgroup-dev
+      DataCatalog: AwsDataCatalog
+      DataBaseTXN: lm-datalake-dev
+      ConfigDatabase: lm-finance-tables-config-dev
+    qa:
+      AwsAccountId: 495164439793
+      Workgroup: lm-finance-workgroup-qa
+      DataCatalog: AwsDataCatalog
+      DataBaseTXN: lm-datalake-qa
+      ConfigDatabase: lm-finance-tables-config-qa
+    prd:
+      AwsAccountId: 956272687219
+      Schema: lm-finance-tables-config-prd
+      Workgroup: lm-finance-workgroup-prd
+      DataCatalog: AwsDataCatalog
+      DataBaseTXN: lm-datalake-prd
+      ConfigDatabase: lm-finance-tables-config-prd
+Resources:
+  #QueryStatements
+  LmAthenaStatementAccrualMilesSocom:
+    Type: AWS::Athena::PreparedStatement
+    Properties:
+      Description: QueryStatements to generate MillasOtorgadasSocom Reports
+      StatementName: lm_accrual_miles_socom_ps
+      WorkGroup: !FindInMap [Environment, !Ref EnvironmentParam, Workgroup]
+      QueryStatement: !Sub
+        - |
+          SELECT
+                FROM_UNIXTIME(PRGMEMACT.PRODAT / 1000000)                         PROCESSED_DATE,
+                PRGMEMACT.MEMSHPNUM                                               MEMBERSHIP_NUMBER,
+                PTRCAT.PTRCATNAM                                                  PARTNER_CATEGORY,
+                ACTTYPNAM.FLDDES                                                  ACTIVITY_NAME,
+                REPLACE(REPLACE(REPLACE(ACRACT.ACTRMK , CHR(10), ' ')
+                                        ,CHR(13), ' '), ' ', ' ')                 ACTIVITY_REMARK,
+                LBYTXNDTL.PTRCOD                                                  PARTNER_PROD_ID,
+                PTR.PTRNAM                                                        PARTNER_NAME,
+                IF(MEMPNTTXN.TXNTYP = 'C', PNTTNXDTL.PNT, PNTTNXDTL.PNT * -1)     POINT,
+                1                                                                 FAIR_VALUE,
+                1 * IF(MEMPNTTXN.TXNTYP = 'C', PNTTNXDTL.PNT, PNTTNXDTL.PNT * -1) INGRESO,
+                LBYTXNDTL.ORGCMPPTR                                               ORIGIN_COMPANY_PARTNER,
+                LBYTXNDTL.LBYOWN                                                  LIABILITY_OWNER,
+                PRGMEMACT.ACTNUM                                                  ACTIVITY_NUMBER,
+                ACRACT.ACTREFNUM                                                  ACTIVITY_REF_NUMBER,
+                PRGMEMACT.CANACTNUM                                               CAN_ACTIVITY_NUMBER,
+                PRGMEMACT.ACTTYP                                                  ACTIVITY_TYPE_CODE,
+                LBYTXNDTL.PNTTYP                                                  POINT_TYPE_PROD_ID,
+                LBYTXNDTL.BNSCOD                                                  BONUS_CODE
+                
+          FROM "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgmemact_rt" PRGMEMACT
+          LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgmemact_rt" ORGMEMACT ON ORGMEMACT.CMPCOD = PRGMEMACT.CMPCOD
+                                                                                          AND ORGMEMACT.PRGCOD = PRGMEMACT.PRGCOD
+                                                                                          AND ORGMEMACT.ACTNUM = PRGMEMACT.CANACTNUM
+          INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgmempnttxn_rt" MEMPNTTXN ON MEMPNTTXN.CMPCOD = PRGMEMACT.CMPCOD
+                                                                                            AND MEMPNTTXN.PRGCOD = PRGMEMACT.PRGCOD
+                                                                                            AND MEMPNTTXN.ACTNUM = PRGMEMACT.ACTNUM
+          INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgpnttypmst_rt" PNTTYPMST ON PNTTYPMST.CMPCOD = MEMPNTTXN.CMPCOD 
+                                                                                            AND PNTTYPMST.PRGCOD = MEMPNTTXN.PRGCOD 
+                                                                                            AND PNTTYPMST.PNTTYP = MEMPNTTXN.PNTTYP
+          INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgpnttxndtl_rt" PNTTNXDTL ON PNTTNXDTL.CMPCOD = MEMPNTTXN.CMPCOD
+                                                                                            AND PNTTNXDTL.PRGCOD = MEMPNTTXN.PRGCOD
+                                                                                            AND PNTTNXDTL.ACTNUM = MEMPNTTXN.ACTNUM
+                                                                                            AND PNTTNXDTL.TXNNUM = MEMPNTTXN.TXNNUM
+          LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_lbyprgmemtxndtl_rt" LBYTXNDTL ON LBYTXNDTL.CMPCOD = PNTTNXDTL.CMPCOD
+                                                                                              AND LBYTXNDTL.PRGCOD = PNTTNXDTL.PRGCOD
+                                                                                              AND LBYTXNDTL.ACTNUM = PNTTNXDTL.ACTNUM
+                                                                                              AND LBYTXNDTL.TXNNUM = PNTTNXDTL.TXNNUM
+                                                                                              AND LBYTXNDTL.PNTBLKIDR = PNTTNXDTL.PNTBLKIDR                                                
+          JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_comptrmst_rt"       PTR ON PTR.CMPCOD = LBYTXNDTL.CMPCOD
+                                                                                      AND PTR.PTRCOD = LBYTXNDTL.PTRCOD
+          JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_comptrcatmst_rt"    PTRCAT ON PTRCAT.CMPCOD = PTR.CMPCOD
+                                                                                      AND PTRCAT.PTRCATCOD = PTR.PTRCAT
+          JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_comonetim_rt"       ACTTYPNAM on PRGMEMACT.CMPCOD = ACTTYPNAM.CMPCOD
+                                                                                          and ACTTYPNAM.FLDVAL = PRGMEMACT.ACTTYP
+                                                                                          and ACTTYPNAM.FLDCOD = 'program.activity.activityType'
+          LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_prgmemacract_rt"    MEMACRACT ON PRGMEMACT.CMPCOD = MEMACRACT.CMPCOD
+                                                                                         AND PRGMEMACT.PRGCOD = MEMACRACT.PRGCOD
+                                                                                         AND IF(PRGMEMACT.ACTTYP = 'CA', PRGMEMACT.CANACTNUM,
+                                                                                         PRGMEMACT.ACTNUM) = MEMACRACT.ACTNUM
+          LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_acract_rt"          ACRACT ON ACRACT.CMPCOD = MEMACRACT.CMPCOD
+                                                                                       AND ACRACT.ACTREFNUM = MEMACRACT.ACTREFNUM
+                                          
+          LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."ifl_rwz_lbytrfpnt_rt" LBYTRFPNT ON LBYTRFPNT.CMPCOD = LBYTXNDTL.CMPCOD
+                                                                              AND LBYTRFPNT.PRGCOD = LBYTXNDTL.PRGCOD
+                                                                              AND LBYTRFPNT.TRGACTNUM = IF(PRGMEMACT.ACTTYP = 'CA',PRGMEMACT.CANACTNUM, PRGMEMACT.ACTNUM)
+                                                                              AND LBYTRFPNT.PNTTYP = LBYTXNDTL.PNTTYP
+                                                                              AND LBYTRFPNT.TRGBLKIDR = LBYTXNDTL.PNTBLKIDR 
+            WHERE
+                    PRGMEMACT.STATUS_DL = 'true'
+                AND (ORGMEMACT.STATUS_DL = 'true' OR ORGMEMACT.STATUS_DL IS NULL)
+                AND MEMPNTTXN.STATUS_DL = 'true'
+                AND PNTTYPMST.STATUS_DL = 'true'
+                AND PNTTNXDTL.STATUS_DL = 'true'
+                AND (LBYTXNDTL.STATUS_DL = 'true' OR LBYTXNDTL.STATUS_DL IS NULL)
+                AND PTR.STATUS_DL = 'true'
+                AND PTRCAT.STATUS_DL = 'true'
+                AND ACTTYPNAM.STATUS_DL = 'true'
+                AND (MEMACRACT.STATUS_DL = 'true' OR MEMACRACT.STATUS_DL IS NULL)
+                AND (ACRACT.STATUS_DL = 'true' OR ACRACT.STATUS_DL IS NULL)
+                AND (LBYTRFPNT.STATUS_DL = 'true' OR LBYTRFPNT.STATUS_DL IS NULL)
+                AND PRGMEMACT.CMPCOD = 'LM'
+                AND PRGMEMACT.PRGCOD = 'LMS'
+                AND PNTTYPMST.RDMFLG = '1'
+                AND FROM_UNIXTIME(PRGMEMACT.PRODAT/1000000) >= parse_datetime(?, 'yyyy-MM-dd')
+                AND FROM_UNIXTIME(PRGMEMACT.PRODAT/1000000) < parse_datetime(?, 'yyyy-MM-dd') + interval '1' day
+                AND SUBSTR(LBYTXNDTL.LBYRPTCOD, 7, 3) IN ('COB', 'GIF','MCV','RET', 'MAX')
+                AND (ORGMEMACT.ACTTYP IS NULL OR ORGMEMACT.ACTTYP != 'TP')
+                AND PRGMEMACT.ACTTYP IN ('AA','CA', 'AD')
+                AND PNTTYPMST.PNTTYP NOT IN ('PT59','PT60','PT86','AVUPGSV','AVUPGRP')
+                AND PRGMEMACT.MEMSHPNUM NOT  IN ('13446135614','13457179971','13430123932') 
+            ;
+
+          
+        - DataCatalog:
+            !FindInMap [Environment, !Ref EnvironmentParam, DataCatalog]
+          DataBaseTXN:
+            !FindInMap [Environment, !Ref EnvironmentParam, DataBaseTXN]
+          ConfigDatabase:
+            !FindInMap [Environment, !Ref EnvironmentParam, ConfigDatabase]            
+
+  LmAthenaStatementAccrualMilesSocomPostgreSql:
+    Type: AWS::Athena::PreparedStatement
+    Properties:
+      Description: QueryStatements to generate MillasOtorgadasSocom Reports
+      StatementName: lm_accrual_miles_socom_pg_ps
+      WorkGroup: !FindInMap [Environment, !Ref EnvironmentParam, Workgroup]
+      QueryStatement: !Sub
+        - |
+          SELECT
+                  FROM_UNIXTIME(PRGMEMACT.PRODAT / 1000000)                         PROCESSED_DATE,
+                  PRGMEMACT.MEMSHPNUM                                               MEMBERSHIP_NUMBER,
+                  PTRCAT.PTRCATNAM                                                  PARTNER_CATEGORY,
+                  ACTTYPNAM.FLDDES                                                  ACTIVITY_NAME,
+                  REPLACE(REPLACE(REPLACE(ACRACT.ACTRMK , CHR(10), ' ')
+                                          ,CHR(13), ' '), ' ', ' ')                 ACTIVITY_REMARK,
+                  LBYTXNDTL.PTRCOD                                                  PARTNER_PROD_ID,
+                  PTR.PTRNAM                                                        PARTNER_NAME,
+                  if(MEMPNTTXN.TXNTYP = 'C', PNTTNXDTL.PNT, PNTTNXDTL.PNT * -1)     POINT,
+                  1                                                                 FAIR_VALUE,
+                  1 * if(MEMPNTTXN.TXNTYP = 'C', PNTTNXDTL.PNT, PNTTNXDTL.PNT * -1) INGRESO,
+                  LBYTXNDTL.ORGCMPPTR                                               ORIGIN_COMPANY_PARTNER,
+                  LBYTXNDTL.LBYOWN                                                  LIABILITY_OWNER,
+                  PRGMEMACT.ACTNUM                                                  ACTIVITY_NUMBER,
+                  ACRACT.ACTREFNUM                                                  ACTIVITY_REF_NUMBER,
+                  PRGMEMACT.CANACTNUM                                               CAN_ACTIVITY_NUMBER,
+                  PRGMEMACT.ACTTYP                                                  ACTIVITY_TYPE_CODE,
+                  LBYTXNDTL.PNTTYP                                                  POINT_TYPE_PROD_ID,
+                  LBYTXNDTL.BNSCOD                                                  BONUS_CODE
+                  
+            FROM "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgmemact_rt" PRGMEMACT
+            LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgmemact_rt" ORGMEMACT ON ORGMEMACT.CMPCOD = PRGMEMACT.CMPCOD
+                                                                                            AND ORGMEMACT.PRGCOD = PRGMEMACT.PRGCOD
+                                                                                            AND ORGMEMACT.ACTNUM = PRGMEMACT.CANACTNUM
+            INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgmempnttxn_rt" MEMPNTTXN ON MEMPNTTXN.CMPCOD = PRGMEMACT.CMPCOD
+                                                                                              AND MEMPNTTXN.PRGCOD = PRGMEMACT.PRGCOD
+                                                                                              AND MEMPNTTXN.ACTNUM = PRGMEMACT.ACTNUM
+            INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgpnttypmst_rt" PNTTYPMST ON PNTTYPMST.CMPCOD = MEMPNTTXN.CMPCOD 
+                                                                                              AND PNTTYPMST.PRGCOD = MEMPNTTXN.PRGCOD 
+                                                                                              AND PNTTYPMST.PNTTYP = MEMPNTTXN.PNTTYP
+            INNER JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgpnttxndtl_rt" PNTTNXDTL ON PNTTNXDTL.CMPCOD = MEMPNTTXN.CMPCOD
+                                                                                                  AND PNTTNXDTL.PRGCOD = MEMPNTTXN.PRGCOD
+                                                                                                  AND PNTTNXDTL.ACTNUM = MEMPNTTXN.ACTNUM
+                                                                                                  AND PNTTNXDTL.TXNNUM = MEMPNTTXN.TXNNUM
+            LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_lbyprgmemtxndtl_rt" LBYTXNDTL ON LBYTXNDTL.CMPCOD = PNTTNXDTL.CMPCOD
+                                                                                                    AND LBYTXNDTL.PRGCOD = PNTTNXDTL.PRGCOD
+                                                                                                    AND LBYTXNDTL.ACTNUM = PNTTNXDTL.ACTNUM
+                                                                                                    AND LBYTXNDTL.TXNNUM = PNTTNXDTL.TXNNUM
+                                                                                                    AND LBYTXNDTL.PNTBLKIDR = PNTTNXDTL.PNTBLKIDR                                                
+            JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_comptrmst_rt"       PTR ON PTR.CMPCOD = LBYTXNDTL.CMPCOD
+                                                                                        AND PTR.PTRCOD = LBYTXNDTL.PTRCOD
+            JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_comptrcatmst_rt"    PTRCAT ON PTRCAT.CMPCOD = PTR.CMPCOD
+                                                                                        AND PTRCAT.PTRCATCOD = PTR.PTRCAT
+            JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_comonetim_rt"       ACTTYPNAM on PRGMEMACT.CMPCOD = ACTTYPNAM.CMPCOD
+                                                                                        and ACTTYPNAM.FLDVAL = PRGMEMACT.ACTTYP
+                                                                                        and ACTTYPNAM.FLDCOD = 'program.activity.activityType'
+            LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_prgmemacract_rt"    MEMACRACT ON PRGMEMACT.CMPCOD = MEMACRACT.CMPCOD
+                                                                                           AND PRGMEMACT.PRGCOD = MEMACRACT.PRGCOD
+                                                                                           AND IF(PRGMEMACT.ACTTYP = 'CA', PRGMEMACT.CANACTNUM,
+                                                                                           PRGMEMACT.ACTNUM) = MEMACRACT.ACTNUM
+            LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_acract_rt"          ACRACT ON ACRACT.CMPCOD = MEMACRACT.CMPCOD
+                                                                                            AND ACRACT.ACTREFNUM = MEMACRACT.ACTREFNUM
+                                            
+            LEFT JOIN "${DataCatalog}"."${DataBaseTXN}"."iflpg_rwz_lbytrfpnt_rt" LBYTRFPNT ON LBYTRFPNT.CMPCOD = LBYTXNDTL.CMPCOD
+                                                                                                AND LBYTRFPNT.PRGCOD = LBYTXNDTL.PRGCOD
+                                                                                                AND LBYTRFPNT.TRGACTNUM = IF(PRGMEMACT.ACTTYP = 'CA',PRGMEMACT.CANACTNUM, PRGMEMACT.ACTNUM)
+                                                                                                AND LBYTRFPNT.PNTTYP = LBYTXNDTL.PNTTYP
+                                                                                                AND LBYTRFPNT.TRGBLKIDR = LBYTXNDTL.PNTBLKIDR 
+              WHERE
+                      PRGMEMACT.STATUS_DL = 'true'
+                  AND (ORGMEMACT.STATUS_DL = 'true' OR ORGMEMACT.STATUS_DL IS NULL)
+                  AND MEMPNTTXN.STATUS_DL = 'true'
+                  AND PNTTYPMST.STATUS_DL = 'true'
+                  AND PNTTNXDTL.STATUS_DL = 'true'
+                  AND (LBYTXNDTL.STATUS_DL = 'true' OR LBYTXNDTL.STATUS_DL IS NULL)
+                  AND PTR.STATUS_DL = 'true'
+                  AND PTRCAT.STATUS_DL = 'true'
+                  AND ACTTYPNAM.STATUS_DL = 'true'
+                  AND (MEMACRACT.STATUS_DL = 'true' OR MEMACRACT.STATUS_DL IS NULL)
+                  AND (ACRACT.STATUS_DL = 'true' OR ACRACT.STATUS_DL IS NULL)
+                  AND (LBYTRFPNT.STATUS_DL = 'true' OR LBYTRFPNT.STATUS_DL IS NULL)
+                  AND PRGMEMACT.CMPCOD = 'LM'
+                  AND PRGMEMACT.PRGCOD = 'LMS'
+                  AND PNTTYPMST.RDMFLG = 'true'
+                  AND FROM_UNIXTIME(PRGMEMACT.PRODAT/1000000) >= parse_datetime(?, 'yyyy-MM-dd')
+                  AND FROM_UNIXTIME(PRGMEMACT.PRODAT/1000000) < parse_datetime(?, 'yyyy-MM-dd') + interval '1' day
+                  AND SUBSTR(LBYTXNDTL.LBYRPTCOD, 7, 3) IN ('COB', 'GIF','MCV','RET', 'MAX')
+                  AND (ORGMEMACT.ACTTYP IS NULL OR ORGMEMACT.ACTTYP != 'TP')
+                  AND PRGMEMACT.ACTTYP IN ('AA','CA', 'AD')
+                  AND PNTTYPMST.PNTTYP NOT IN ('PT59','PT60','PT86','AVUPGSV','AVUPGRP')
+                  AND PRGMEMACT.MEMSHPNUM NOT  IN ('13446135614','13457179971','13430123932')      
+                ;
+          
+        - DataCatalog:
+            !FindInMap [Environment, !Ref EnvironmentParam, DataCatalog]
+          DataBaseTXN:
+            !FindInMap [Environment, !Ref EnvironmentParam, DataBaseTXN]
+          ConfigDatabase:
+            !FindInMap [Environment, !Ref EnvironmentParam, ConfigDatabase]
